@@ -35,10 +35,16 @@
     switch (rem.repeat) {
       case 'daily': return true;
       case 'weekly': return base.getDay() === d.getDay();
-      case 'monthly': return base.getDate() === d.getDate();
-      case 'yearly': return base.getDate() === d.getDate() && base.getMonth() === d.getMonth();
+      // Days that don't exist in the target month (31st, Feb 29) fall on its last day.
+      case 'monthly': return clampedDay(base.getDate(), d) === d.getDate();
+      case 'yearly': return base.getMonth() === d.getMonth() && clampedDay(base.getDate(), d) === d.getDate();
       default: return false;
     }
+  }
+
+  function clampedDay(day, d) {
+    const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    return Math.min(day, lastDay);
   }
 
   function occurrenceTime(rem, key) {
@@ -103,6 +109,102 @@
     window.open(whatsappUrl(rem, key), '_blank', 'noopener');
   }
 
+  // ---------- Calendar export (Google Calendar / .ics) ----------
+
+  const EVENT_MINUTES = 30;
+  const icsStamp = (d) => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
+
+  function rrule(rem) {
+    const day = fromKey(rem.date).getDate();
+    // BYMONTHDAY=n,-1 + BYSETPOS=1 picks day n, or the last day when the month is shorter.
+    const clamp = day > 28 ? `;BYMONTHDAY=${day},-1;BYSETPOS=1` : '';
+    switch (rem.repeat) {
+      case 'daily': return 'RRULE:FREQ=DAILY';
+      case 'weekly': return 'RRULE:FREQ=WEEKLY';
+      case 'monthly': return `RRULE:FREQ=MONTHLY${clamp}`;
+      case 'yearly': return `RRULE:FREQ=YEARLY;BYMONTH=${fromKey(rem.date).getMonth() + 1}${clamp}`;
+      default: return '';
+    }
+  }
+
+  function eventDetails(rem) {
+    const lines = [];
+    if (rem.message) lines.push(rem.message);
+    lines.push(`Enviar por WhatsApp: ${whatsappUrl(rem, rem.date)}`);
+    return lines.join('\n\n');
+  }
+
+  function googleCalendarUrl(rem) {
+    const start = occurrenceTime(rem, rem.date);
+    const end = new Date(start.getTime() + EVENT_MINUTES * 60 * 1000);
+    const params = new URLSearchParams({
+      action: 'TEMPLATE',
+      text: rem.title,
+      dates: `${icsStamp(start)}/${icsStamp(end)}`,
+      details: eventDetails(rem),
+    });
+    const rule = rrule(rem);
+    if (rule) params.set('recur', rule);
+    return `https://calendar.google.com/calendar/render?${params}`;
+  }
+
+  const icsEscape = (s) => String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+
+  // RFC 5545: lines longer than 75 octets are folded with CRLF + space.
+  function icsFold(line) {
+    const bytes = new TextEncoder();
+    const out = [];
+    let cur = '';
+    for (const ch of line) {
+      if (bytes.encode(cur + ch).length > (out.length ? 74 : 75)) {
+        out.push(cur);
+        cur = '';
+      }
+      cur += ch;
+    }
+    out.push(cur);
+    return out.join('\r\n ');
+  }
+
+  function buildIcs(list) {
+    const now = new Date();
+    const stamp = `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}T${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}Z`;
+    const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Calendario WhatsApp//ES', 'CALSCALE:GREGORIAN'];
+    for (const rem of list) {
+      const start = occurrenceTime(rem, rem.date);
+      const end = new Date(start.getTime() + EVENT_MINUTES * 60 * 1000);
+      lines.push(
+        'BEGIN:VEVENT',
+        `UID:${rem.id}@calendario-whatsapp`,
+        `DTSTAMP:${stamp}`,
+        `DTSTART:${icsStamp(start)}`,
+        `DTEND:${icsStamp(end)}`,
+        `SUMMARY:${icsEscape(rem.title)}`,
+        `DESCRIPTION:${icsEscape(eventDetails(rem))}`,
+      );
+      const rule = rrule(rem);
+      if (rule) lines.push(rule);
+      lines.push(
+        'BEGIN:VALARM',
+        'ACTION:DISPLAY',
+        `DESCRIPTION:${icsEscape(rem.title)}`,
+        `TRIGGER:-PT${rem.advance || 0}M`,
+        'END:VALARM',
+        'END:VEVENT',
+      );
+    }
+    lines.push('END:VCALENDAR');
+    return lines.map(icsFold).join('\r\n') + '\r\n';
+  }
+
+  function download(name, content, type) {
+    const a = el('a', { href: URL.createObjectURL(new Blob([content], { type })), download: name });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
   // ---------- State & rendering ----------
 
   const $ = (sel) => document.querySelector(sel);
@@ -112,6 +214,7 @@
   const dayList = $('#day-list');
   const upcomingList = $('#upcoming-list');
 
+  let swRegistration = null;
   let viewYear;
   let viewMonth;
   let selectedKey = todayKey();
@@ -173,14 +276,15 @@
 
   function reminderItem(rem, key, { showDate = false } = {}) {
     const done = isDone(rem, key);
+    const overdue = !done && occurrenceTime(rem, key) < new Date();
     const meta = [showDate ? fmtShort.format(fromKey(key)) : null, rem.time, REPEAT_LABELS[rem.repeat], rem.phone]
       .filter(Boolean).join(' · ');
 
-    return el('li', { class: `rem${done ? ' done' : ''}` }, [
+    return el('li', { class: `rem${done ? ' done' : ''}${overdue ? ' overdue' : ''}` }, [
       el('span', { class: `rem-bar ${rem.color || 'green'}` }),
       el('div', {}, [
         el('div', { class: 'rem-title', text: rem.title }),
-        el('div', { class: 'rem-meta', text: meta }),
+        el('div', { class: 'rem-meta' }, [overdue ? el('span', { class: 'badge', text: 'Vencido' }) : null, meta]),
         rem.message ? el('div', { class: 'rem-msg', text: rem.message }) : null,
         el('div', { class: 'rem-actions' }, [
           el('button', { type: 'button', class: 'btn btn-wa', text: 'Enviar por WhatsApp', onclick: () => openWhatsApp(rem, key) }),
@@ -189,6 +293,10 @@
             onclick: () => toggleDone(rem.id, key),
           }),
           el('button', { type: 'button', class: 'btn btn-ghost btn-sm', text: 'Editar', onclick: () => openDialog(rem.id) }),
+          el('a', {
+            class: 'btn btn-ghost btn-sm', href: googleCalendarUrl(rem), target: '_blank', rel: 'noopener',
+            title: 'Añadir a Google Calendar para recibir el aviso aunque esta página esté cerrada', text: 'Google Calendar',
+          }),
         ]),
       ]),
     ]);
@@ -199,16 +307,21 @@
     const items = remindersOn(selectedKey);
     dayList.replaceChildren(...(items.length
       ? items.map((r) => reminderItem(r, selectedKey))
-      : [el('li', { class: 'empty', text: 'Sin recordatorios. Doble clic en un día para crear uno.' })]));
+      : [el('li', { class: 'empty', text: 'Sin recordatorios. Pulsa «+ Añadir» para crear uno.' })]));
   }
 
   function renderUpcoming() {
     const start = new Date();
     const out = [];
+    const seen = new Set();
     for (let i = 0; i < 7; i++) {
       const key = toKey(addDays(start, i));
+      // Each reminder is listed once, at its next pending occurrence. Today's
+      // past items stay listed (as "Vencido") until marked as done.
       remindersOn(key).forEach((r) => {
-        if (!isDone(r, key) && occurrenceTime(r, key) >= start) out.push([r, key]);
+        if (isDone(r, key) || seen.has(r.id)) return;
+        seen.add(r.id);
+        out.push([r, key]);
       });
     }
     upcomingList.replaceChildren(...(out.length
@@ -318,6 +431,16 @@
 
   // ---------- Alerts ----------
 
+  // Drop alert records older than a few days so storage doesn't grow forever.
+  function pruneNotified() {
+    const cutoff = Date.now() - 3 * 24 * 60 * 60 * 1000;
+    let changed = false;
+    for (const [k, t] of Object.entries(notified)) {
+      if (t < cutoff) { delete notified[k]; changed = true; }
+    }
+    if (changed) save(NOTIFIED_KEY, notified);
+  }
+
   function clearNotified(id) {
     for (const k of Object.keys(notified)) if (k.startsWith(`${id}|`)) delete notified[k];
     save(NOTIFIED_KEY, notified);
@@ -346,21 +469,35 @@
       ['Enviar por WhatsApp', 'btn-wa', () => openWhatsApp(rem, key)],
       ['Hecho', 'btn-ghost btn-sm', () => toggleDone(rem.id, key)],
     ]);
-    if ('Notification' in window && Notification.permission === 'granted') {
+    showSystemNotification(`⏰ ${rem.title}`, body, `${rem.id}|${key}`, whatsappUrl(rem, key));
+  }
+
+  async function showSystemNotification(title, body, tag, url) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    const options = { body, tag, icon: 'icon.svg', data: { url } };
+    // Android Chrome only allows notifications through a service worker.
+    if (swRegistration) {
       try {
-        const n = new Notification(`⏰ ${rem.title}`, { body, tag: `${rem.id}|${key}` });
-        n.onclick = () => { window.focus(); openWhatsApp(rem, key); n.close(); };
+        await swRegistration.showNotification(title, options);
+        return;
       } catch {
-        // Some browsers (e.g. Android Chrome) only allow notifications via a service worker.
+        // Fall through to the page-level API.
       }
+    }
+    try {
+      const n = new Notification(title, options);
+      n.onclick = () => { window.focus(); window.open(url, '_blank', 'noopener'); n.close(); };
+    } catch {
+      // Notifications unavailable in this context; the in-app toast is still shown.
     }
   }
 
   function checkDue() {
     const now = Date.now();
     const base = new Date();
-    // Look ahead 2 days so "avisar 1 día antes" fires for tomorrow's items.
-    for (let i = 0; i <= 2; i++) {
+    // Yesterday catches late-night items right after midnight; looking 2 days
+    // ahead lets "avisar 1 día antes" fire for tomorrow's items.
+    for (let i = -1; i <= 2; i++) {
       const key = toKey(addDays(base, i));
       for (const rem of remindersOn(key)) {
         const id = `${rem.id}|${key}`;
@@ -394,12 +531,15 @@
   // ---------- Import / export ----------
 
   $('#btn-export').addEventListener('click', () => {
-    const blob = new Blob([JSON.stringify(reminders, null, 2)], { type: 'application/json' });
-    const a = el('a', { href: URL.createObjectURL(blob), download: `recordatorios-${todayKey()}.json` });
-    document.body.append(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    download(`recordatorios-${todayKey()}.json`, JSON.stringify(reminders, null, 2), 'application/json');
+  });
+
+  $('#btn-ics').addEventListener('click', () => {
+    if (!reminders.length) {
+      toast('Nada que exportar', 'Crea al menos un recordatorio.');
+      return;
+    }
+    download(`recordatorios-${todayKey()}.ics`, buildIcs(reminders), 'text/calendar');
   });
 
   $('#input-import').addEventListener('change', async (e) => {
@@ -452,18 +592,29 @@
   $('#btn-new').addEventListener('click', () => openDialog(null));
   $('#btn-add-day').addEventListener('click', () => openDialog(null, selectedKey));
 
-  // Keep "today" highlighting and the upcoming list fresh across midnight.
+  // Keep "today" highlighting, "Vencido" badges and the upcoming list fresh.
   let lastToday = todayKey();
   setInterval(() => {
     checkDue();
     if (todayKey() !== lastToday) {
       lastToday = todayKey();
       render();
+    } else if (!dialog.open) {
+      renderDay();
+      renderUpcoming();
     }
   }, CHECK_INTERVAL_MS);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { checkDue(); renderUpcoming(); } });
 
+  // Service workers need http(s); opened as file:// the app still works without one.
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+    navigator.serviceWorker.register('sw.js')
+      .then((reg) => { swRegistration = reg; })
+      .catch(() => {});
+  }
+
   updateNotifyButton();
+  pruneNotified();
   render();
   checkDue();
 })();

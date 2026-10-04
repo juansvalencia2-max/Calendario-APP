@@ -4,7 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Calendario de recordatorios con WhatsApp</title>
-  <meta name="theme-color" content="#128c7e">
+  <meta name="theme-color" content="#075e54">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -15,10 +18,11 @@
     </div>
     <div class="topbar-actions">
       <button id="btn-notify" class="btn btn-ghost" type="button" title="Activar notificaciones del navegador">🔔 Notificaciones</button>
-      <button id="btn-export" class="btn btn-ghost" type="button" title="Exportar recordatorios (JSON)">⬇ Exportar</button>
+      <button id="btn-ics" class="btn btn-ghost" type="button" title="Descargar .ics para Google Calendar, Apple Calendar u Outlook (avisos aunque la app esté cerrada)">📅 Exportar calendario</button>
+      <button id="btn-export" class="btn btn-ghost" type="button" title="Copia de seguridad de los recordatorios (JSON)">⬇ Copia</button>
       <label class="btn btn-ghost" title="Importar recordatorios (JSON)">
         ⬆ Importar
-        <input id="input-import" type="file" accept="application/json" hidden>
+        <input id="input-import" type="file" accept="application/json,.json" hidden>
       </label>
       <button id="btn-new" class="btn btn-primary" type="button">+ Nuevo recordatorio</button>
     </div>

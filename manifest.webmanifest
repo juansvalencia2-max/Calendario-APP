@@ -1,0 +1,13 @@
+{
+  "name": "Calendario de recordatorios con WhatsApp",
+  "short_name": "Recordatorios",
+  "lang": "es",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f0f2f5",
+  "theme_color": "#075e54",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
