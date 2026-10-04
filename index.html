@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Calendario de recordatorios con WhatsApp</title>
+  <meta name="theme-color" content="#128c7e">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-icon" aria-hidden="true">💬</span>
+      <h1>Recordatorios WhatsApp</h1>
+    </div>
+    <div class="topbar-actions">
+      <button id="btn-notify" class="btn btn-ghost" type="button" title="Activar notificaciones del navegador">🔔 Notificaciones</button>
+      <button id="btn-export" class="btn btn-ghost" type="button" title="Exportar recordatorios (JSON)">⬇ Exportar</button>
+      <label class="btn btn-ghost" title="Importar recordatorios (JSON)">
+        ⬆ Importar
+        <input id="input-import" type="file" accept="application/json" hidden>
+      </label>
+      <button id="btn-new" class="btn btn-primary" type="button">+ Nuevo recordatorio</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="calendar card" aria-label="Calendario">
+      <div class="calendar-header">
+        <button id="btn-prev" class="btn btn-icon" type="button" aria-label="Mes anterior">‹</button>
+        <h2 id="month-label"></h2>
+        <button id="btn-next" class="btn btn-icon" type="button" aria-label="Mes siguiente">›</button>
+        <button id="btn-today" class="btn btn-ghost btn-sm" type="button">Hoy</button>
+      </div>
+      <div class="weekdays">
+        <span>Lun</span><span>Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span>
+      </div>
+      <div id="grid" class="grid" role="grid"></div>
+    </section>
+
+    <aside class="sidebar">
+      <section class="card">
+        <div class="section-head">
+          <h3 id="day-label"></h3>
+          <button id="btn-add-day" class="btn btn-ghost btn-sm" type="button">+ Añadir</button>
+        </div>
+        <ul id="day-list" class="rem-list"></ul>
+      </section>
+      <section class="card">
+        <div class="section-head"><h3>Próximos 7 días</h3></div>
+        <ul id="upcoming-list" class="rem-list"></ul>
+      </section>
+    </aside>
+  </main>
+
+  <dialog id="dialog" class="dialog">
+    <form id="form" method="dialog">
+      <h3 id="dialog-title">Nuevo recordatorio</h3>
+      <input type="hidden" name="id">
+      <label>Título
+        <input name="title" required maxlength="80" placeholder="Ej. Cita con el dentista">
+      </label>
+      <div class="row">
+        <label>Fecha <input name="date" type="date" required></label>
+        <label>Hora <input name="time" type="time" required value="09:00"></label>
+      </div>
+      <label>Teléfono de WhatsApp (con código de país)
+        <input name="phone" type="tel" inputmode="tel" placeholder="Ej. +57 300 123 4567">
+      </label>
+      <label>Mensaje
+        <textarea name="message" rows="3" maxlength="1000" placeholder="Hola, te recuerdo que…"></textarea>
+      </label>
+      <div class="row">
+        <label>Repetir
+          <select name="repeat">
+            <option value="none">No se repite</option>
+            <option value="daily">Cada día</option>
+            <option value="weekly">Cada semana</option>
+            <option value="monthly">Cada mes</option>
+            <option value="yearly">Cada año</option>
+          </select>
+        </label>
+        <label>Avisar antes
+          <select name="advance">
+            <option value="0">A la hora</option>
+            <option value="5">5 minutos</option>
+            <option value="15">15 minutos</option>
+            <option value="30">30 minutos</option>
+            <option value="60">1 hora</option>
+            <option value="1440">1 día</option>
+          </select>
+        </label>
+      </div>
+      <fieldset class="colors">
+        <legend>Color</legend>
+        <label><input type="radio" name="color" value="green" checked><span class="swatch green"></span></label>
+        <label><input type="radio" name="color" value="blue"><span class="swatch blue"></span></label>
+        <label><input type="radio" name="color" value="orange"><span class="swatch orange"></span></label>
+        <label><input type="radio" name="color" value="pink"><span class="swatch pink"></span></label>
+        <label><input type="radio" name="color" value="purple"><span class="swatch purple"></span></label>
+      </fieldset>
+      <div class="dialog-actions">
+        <button id="btn-delete" class="btn btn-danger" type="button" hidden>Eliminar</button>
+        <span class="spacer"></span>
+        <button id="btn-cancel" class="btn btn-ghost" type="button">Cancelar</button>
+        <button class="btn btn-primary" type="submit">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
